@@ -1,0 +1,373 @@
+/* GP - Linear_Reg */
+
+/* 1. Load the data*/
+libname computer '/home/u60768178/Group Project - Computer Data';
+
+FILENAME REFFILE '/home/u60768178/Group Project - Computer Data/ComPrices.csv';
+
+PROC IMPORT DATAFILE=REFFILE
+	DBMS=CSV
+	OUT=computer.ComPrices;
+	GETNAMES=YES;
+RUN;
+
+data computer.comprices;
+set computer.comprices;
+rec_no = _n_;
+run;
+
+proc print data=computer.comprices;
+run;
+
+
+/* UNIVARIATE ANALYSIS OF DV. 
+
+Look for problems in DV.
+Problems mean - outlier, missing values?
+By looking at the distribution of the DV you decide if the var needs any transformation like
+- log (in case there is a lot of skewnes - or a long tail in the histogram)
+Ideally the DV should have a normal distribution. If not you try to make transformations to make it normal
+price is your Dependent Variable. Use the right visualizations (boxplot, plot., histogram)*/
+
+/* Check Missing Values*/
+proc freq data=computer.ComPrices;
+    table _all_ / missing;
+run;
+
+PROC sgscatter  DATA = computer.comprices;
+   PLOT price*rec_no;
+   title 'Prices - Scatter Plot';
+RUN;
+/* insight - there are outliers */
+
+
+proc sgscatter data = computer.comprices; 
+compare y = price  x = rec_no / ellipse =(alpha = 0.01 type = predicted); 
+title 'Prices - Scatter Plot'; 
+title2 '-- with 99% prediction ellipse --'; 
+run;
+
+
+PROC SGPLOT  DATA = computer.comprices;
+   VBOX price;
+   title 'ComputerPrice - Box Plot';
+RUN;
+
+/* 3. Find percentile values on the price to treat for outliers */
+proc univariate data= computer.comprices;
+   var price;
+   histogram;
+   output out = computer.comprices_Ptile pctlpts  = 90 95 97.5 99 99.5 99.6 99.7 99.8 99.9 100 pctlpre  = P_;
+run;
+
+/* Treat price Outlier */
+
+data computer.comprices;
+set computer.comprices;
+log_price = log(price);
+run;
+
+*plotting graphs after outlier treatement;
+PROC sgscatter  DATA = computer.comprices;
+   PLOT log_price*rec_no;
+   title 'Log_Prices - Scatter Plot';
+RUN;
+
+
+proc univariate data = computer.comprices;
+   var log_price;
+   histogram;
+run;
+
+
+*use summary table for accessing univariate statistics;
+proc univariate data = computer.comprices;
+   var log_price;
+   output out=computer.compricesPtile pctlpts  = 5 10 25  50 75 90 95 97.5 99 99.5 
+                    pctlpre  = price
+                    pctlname = pct5 pct10 pct25 pct50 pct75 pct90 pct95 pct975 pct99 pct995
+					max= max
+					std= SD;
+run;
+
+proc print data = computer.comprices;
+run;
+
+/* 4. Create dummy variables for categorical variables */
+*Modifying input data;
+
+%MACRO compu(var1);
+PROC FREQ Data = computer.comprices;
+ TABLES rec_no &var1;
+%MEND;
+RUN;
+
+%compu(cd);
+%compu(multi);
+%compu(premium);
+
+data computer.comprices;
+set computer.comprices;
+
+if cd="yes" then cd_dummy=1;
+else cd_dummy=0;
+
+if multi="yes" then multi_dummy=1;
+else multi_dummy=0;
+
+if premium="yes" then premium_dummy=1;
+else premium_dummy=0;
+
+/* Perform unvariate analysis on all other vars */
+
+For continous vars
+For categorical vars
+
+/*Continous Variable*/
+
+%Macro coscatter(var2);
+PROC sgscatter  DATA = computer.comprices;
+   PLOT &var2*rec_no;
+   title "&var2 - Scatter Plot";
+run;
+proc sgscatter data = computer.comprices; 
+compare y = &var2  x = rec_no / ellipse =(alpha = 0.01 type = predicted); 
+title "&var2 - Scatter Plot";
+title2 '-- with 99% prediction ellipse --'; 
+run;
+
+PROC SGPLOT  DATA = computer.comprices;
+   VBOX &var2;
+   title "&var2 - Box Plot";
+run;   
+%MEND; 
+RUN;
+
+%coscatter(speed);
+%coscatter(hd);
+%coscatter(ram);
+%coscatter(screen);
+%coscatter(ads);
+%coscatter(trend);
+
+
+/* insight - there are outliers */
+
+
+/* 3. Find percentile values on the price to treat for outliers */
+%macro conth(var3);
+proc univariate data= computer.comprices;
+   var &var3;
+   histogram;
+   output out = computer.comprices_contPtile pctlpts  = 90 95 97.5 99 99.5 99.6 99.7 99.8 99.9 100 pctlpre  = P_;
+
+%MEND;
+run;
+
+%conth(speed);
+%conth(hd);
+%conth(ram);
+%conth(screen);
+%conth(ads);
+%conth(trend);
+
+/*Categorical Variable*/
+%MACRO compu(var1);
+PROC FREQ Data = computer.comprices;
+ TABLES rec_no &var1;
+%MEND;
+RUN;
+
+%compu(cd);
+%compu(multi);
+%compu(premium);
+
+
+/*Bi Variate - It helps you realize the relationship between 2 vars
+We need to find out which IVs are good for explaining the DV (price)*/
+
+
+/*Bivariate profiling for categorical vars*/
+
+%macro bicateg(dum,title);
+
+proc sql;
+create table distr_&dum as select &dum, avg(log_price) as avg_price from computer.comprices group by &dum;
+quit;
+
+proc SGPLOT data = distr_&dum;
+vbar &dum/ response=avg_price stat=mean;
+title "&title";
+
+%mend;
+run;
+%bicateg(cd_dummy,cd);
+%bicateg(multi_dummy,multi);
+%bicateg(premium_dummy,premium);
+
+/*Bivariate profiling for continuous vars*/
+
+%macro bicont(cont,title);
+
+proc sql;
+create table distr_&cont as select &cont, avg(log_price) as avg_price from computer.comprices group by &cont;
+quit;
+
+proc SGPLOT data = distr_&cont;
+vbar &cont/ response=avg_price stat=mean;
+title "&title";
+
+%mend;
+run;
+%bicont(speed,Speed);
+%bicont(hd,HardDrive);
+%bicont(ram,RandomAccessMemory);
+%bicont(screen,Screen);
+%bicont(ads,Ads);
+%bicont(trend,Trend);
+
+
+/*Bivariate profiling(coorelation matrix) for continous vars */
+proc corr data = computer.comprices plots = matrix ;
+VAR log_price speed hd ram screen ads trend;
+run;
+
+/*Correlation close to 1 has relationship, 0 shows no relationship*/
+/* Insight - Most of the variables are highly related with price. However, ads has no relation with price*/
+
+
+/*Bootstrapping/MultiModelling*/
+
+%MACRO mseed(va1,va2,tab);
+data computer.train computer.test;
+set computer.comprices;
+if ranuni(&va2) le &va1 then output computer.train;
+else output computer.test;
+run;
+
+%Let Varlist1 = speed hd ram screen trend cd_dummy multi_dummy premium_dummy;
+ 
+proc reg data=computer.train outest=pred1;
+model price = &Varlist1;
+Output Out= computer.trainout P=predicted R=residual; 
+store out = computer.ModelOut;
+run;
+/*Residual metrics*/
+
+proc sql;
+create table computer.&tab as
+select mean(abs(residual/price))*100 as mape , sqrt(mean(residual**2)) as rmse, 1-((sum(residual**2))/(sum(price**2))) as rsquare
+from computer.TrainOut;
+quit;
+
+proc print data = computer.&tab;
+title 'Train stats';
+run;
+
+proc plm source = computer.ModelOut;
+score data=computer.test out=computer.TestOut pred=predicted residual = residual;
+run;
+
+proc sql;
+create table computer.residmet_test as
+select round(mean(abs(residual/price))*100,1) as mape, round(sqrt(mean(residual**2)),1) as rmse
+from computer.TestOut;
+quit;
+proc print data=computer.residmet_test;
+title 'Test stats';
+run;
+
+%MEND;
+run;
+
+%mseed(0.85,100,mod1);
+%mseed(0.80,100,mod2);
+%mseed(0.75,100,mod3);
+%mseed(0.70,100,mod4);
+%mseed(0.70,200,mod5);
+
+/*The model with train data 0.70 and seed of 200 is chosen as they have the lowest RMSE*/
+
+/* Running regresion model*/
+/* create regression model by removing ads*/
+
+/* Create test & train groups 
+*Dividing the sample between train(0.70) & test */
+
+data computer.train computer.test;
+set computer.comprices;
+if ranuni(200) le 0.70 then output computer.train;
+else output computer.test;
+run;
+
+%Let Varlist = 	speed hd ram screen trend cd_dummy multi_dummy premium_dummy;
+				
+*Checking for multicollinearity among predictors (IVs);
+proc reg data= computer.train;
+  model price = &VarList/ vif tol collin;
+quit;
+
+/*VIF score of 3 is taken as a cutoff */
+
+%Let Varlist = 	speed ram screen trend cd_dummy premium_dummy;
+				
+*Checking for multicollinearity among predictors (IVs);
+proc reg data= computer.train;
+  model price = &VarList/ vif tol collin;
+  Output Out= computer.trainout P=predicted R=residual; 
+  store out = computer.ModelOut;
+run;
+/*Residual metrics*/
+
+proc sql;
+create table computer.mod as
+select mean(abs(residual/price))*100 as mape , sqrt(mean(residual**2)) as rmse, 1-((sum(residual**2))/(sum(price**2))) as rsquare
+from computer.TrainOut;
+quit;
+
+proc print data = computer.mod;
+title 'Train stats';
+run;
+
+proc plm source = computer.ModelOut;
+score data=computer.test out=computer.TestOut pred=predicted residual = residual;
+run;
+
+proc sql;
+create table computer.residmet_test as
+select round(mean(abs(residual/price))*100,1) as mape, round(sqrt(mean(residual**2)),1) as rmse
+from computer.TestOut;
+quit;
+proc print data=computer.residmet_test;
+title 'Test stats';
+run;
+
+Output Out= computer.trainout P=predicted R=residual; 
+store out = computer.ModelOut;
+run;
+/*Residual metrics*/
+
+proc sql;
+create table computer.&tab as
+select mean(abs(residual/price))*100 as mape , sqrt(mean(residual**2)) as rmse, 1-((sum(residual**2))/(sum(price**2))) as rsquare
+from computer.TrainOut;
+quit;
+
+proc print data = computer.&tab;
+title 'Train stats';
+run;
+
+proc plm source = computer.ModelOut;
+score data=computer.test out=computer.TestOut pred=predicted residual = residual;
+run;
+
+proc sql;
+create table computer.residmet_test as
+select round(mean(abs(residual/price))*100,1) as mape, round(sqrt(mean(residual**2)),1) as rmse
+from computer.TestOut;
+quit;
+proc print data=computer.residmet_test;
+title 'Test stats';
+run;
+/* The train data rmse =9.98050 ,mape =297.034. For test data rmse=289,mape=10
+The rmse & mape in test data are similar to what we obtained in training data. So the model is consistent on new data as well.*/
